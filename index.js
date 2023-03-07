@@ -1,9 +1,15 @@
 const express=require("express");
 const app=express();
+
 const bodyParser=require("body-parser");
+
 const mysql=require("mysql");
+
 var cors=require("cors");//no idea what its used for
+const { response } = require("express");
 app.use(cors());
+
+const jwt=require("jsonwebtoken");
 
 //json parser
 var jsonParser=bodyParser.json();
@@ -28,8 +34,50 @@ con.connect((err)=>{
     console.log("connected to database");
 });
 
+//Middleware for token verification
+function verifyToken(req,res,next) {
+
+    let authHeader=req.headers.authorization;
+    if(authHeader==undefined){
+        res.send({Error:"No token provided"})
+    }
+    //the authHeader contains two set of data: bearer and token. token is in second half,so we split it and take the token only
+    let token=authHeader.split(" ")[1]; 
+    jwt.verify(token,"secret",(err,decoded)=>{
+        if(err){
+            res.send({Invalid:"Invalid Token"})
+        }
+        else{
+            next();
+        }
+    })
+}
+
+//Login 
+app.post("/login",jsonParser,(req,res)=>{
+    let user=req.body.username;
+    let pass=req.body.password;
+    if(user==undefined || pass==undefined){
+        res.send({ERROR:"Authentication Failed"});
+    }
+    let q=`select name from users where username='${user}' and password=sha1('${pass}');`;
+    con.query(q,(err,result)=>{
+        if(err || result.length==0){
+            res.send({error:"Login failed"})
+        }
+        else{
+            let resp={
+                // id : result[0].id,
+                name : result[0].name
+            }
+        let token = jwt.sign(resp,"secret",{ expiresIn: 300})
+        res.send({auth:"True",token:token});        
+        }
+    })
+})
+
 //View the details of all the books 
-app.get("/",(req,res)=>{
+app.get("/",verifyToken,(req,res)=>{
     con.query("select * from details",(err,result,fields)=>{
         if(err){
             throw err;
@@ -39,7 +87,7 @@ app.get("/",(req,res)=>{
 });
 
 //View the details of a selected book
-app.get("/view/:ids",(req,res)=>{
+app.get("/view/:ids",verifyToken,(req,res)=>{
     let id=req.params.ids;
     con.query("select * from details where id= "+id,(err,result,fields)=>{
         if(err){
@@ -50,7 +98,7 @@ app.get("/view/:ids",(req,res)=>{
 })
 
 //Enter a new book details
-app.post("/new",jsonParser,(req,res)=>{
+app.post("/new",jsonParser,verifyToken,(req,res)=>{
     let t=req.body.title; //title here is from postman
     let au=req.body.author;
     let desc=req.body.desc;
@@ -68,7 +116,7 @@ app.post("/new",jsonParser,(req,res)=>{
 })
 
 //Update the details of a book
-app.patch("/edit",jsonParser,(req,res)=>{
+app.patch("/edit",jsonParser,verifyToken,(req,res)=>{
     let t=req.body.title;
     let au=req.body.author;
     let desc=req.body.desciption;
@@ -89,7 +137,7 @@ app.patch("/edit",jsonParser,(req,res)=>{
 
 
 //Delete a book details
-app.delete("/delete/:id",(req,res)=>{
+app.delete("/delete/:id",verifyToken,(req,res)=>{
     let id=req.params.id;
     con.query('delete from details where id='+id,(err,result,fields)=>{
         if(err){
